@@ -8,7 +8,14 @@ import pytest
 from mem0 import Memory
 from mem0.configs.base import MemoryConfig
 from mem0.memory.main import _entity_collection_name
-from mem0.memory.utils import normalize_facts
+from mem0.memory.utils import normalize_facts, remove_code_blocks
+
+
+def test_remove_code_blocks_with_four_backtick_markdown_fence():
+    content = "````markdown\nRun this check:\n```sh\necho ok\n```\n````"
+    expected = "Run this check:\n```sh\necho ok\n```"
+
+    assert remove_code_blocks(content) == expected
 
 
 class MockVectorMemory:
