@@ -328,7 +328,9 @@ class Qdrant(VectorStoreBase):
         elif "eq" in value:
             return FieldCondition(key=key, match=MatchValue(value=value["eq"]))
         elif "ne" in value:
-            return FieldCondition(key=key, match=MatchExcept(**{"except": [value["ne"]]}))
+            # A positive match under Filter.must_not supports bool operands and
+            # includes points where the payload key is absent.
+            return FieldCondition(key=key, match=MatchValue(value=value["ne"]))
         elif "in" in value:
             return FieldCondition(key=key, match=MatchAny(any=value["in"]))
         elif "nin" in value:
@@ -418,7 +420,14 @@ class Qdrant(VectorStoreBase):
             else:
                 condition = self._build_field_condition(key, value)
                 if condition is not None:
-                    must.append(condition)
+                    # Match "ne" by negating a positive equality condition.
+                    # Qdrant's MatchExcept accepts only strings and integers,
+                    # and does not match points where the payload key is absent.
+                    is_ne = isinstance(value, dict) and "ne" in value and "eq" not in value
+                    if is_ne:
+                        must_not.append(condition)
+                    else:
+                        must.append(condition)
 
         if not any([must, should, must_not]):
             return None
