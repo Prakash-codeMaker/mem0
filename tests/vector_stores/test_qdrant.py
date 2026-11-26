@@ -566,6 +566,25 @@ class TestQdrant(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].payload["user_id"], "alice")
 
+    def test_local_ne_filter_supports_booleans_and_missing_keys(self):
+        """ne uses must_not so bool values and absent payload keys are handled."""
+        client = QdrantClient(":memory:")
+        store = Qdrant(collection_name="ne_semantics", embedding_model_dims=4, client=client)
+        self.addCleanup(client.close)
+
+        stage_id, missing_id = str(uuid.uuid4()), str(uuid.uuid4())
+        store.insert(
+            vectors=[[0.1] * 4, [0.2] * 4],
+            payloads=[{"stage": 0}, {"other": 1}],
+            ids=[stage_id, missing_id],
+        )
+
+        bool_results = store.list(filters={"stage": {"ne": False}}, top_k=10)
+        missing_key_results = store.list(filters={"stage": {"ne": 1}}, top_k=10)
+
+        self.assertEqual({point.id for point in bool_results}, {stage_id, missing_id})
+        self.assertEqual({point.id for point in missing_key_results}, {stage_id, missing_id})
+
     def test_list_with_no_filters(self):
         """Test list with no filters."""
         mock_point = MagicMock(id=str(uuid.uuid4()), score=0.95, payload={"key": "value"})
@@ -621,10 +640,16 @@ class TestQdrantEnhancedFilters(unittest.TestCase):
         self.assertEqual(cond.match.value, "programming")
 
     def test_ne_operator(self):
-        """{\"ne\": v} maps to MatchExcept with a single-element list."""
+        """{"ne": v} builds the positive equality condition to place under must_not."""
         cond = self.qdrant._build_field_condition("category", {"ne": "spam"})
-        self.assertIsInstance(cond.match, MatchExcept)
-        self.assertIn("spam", getattr(cond.match, "except_", None) or getattr(cond.match, "except"))
+        self.assertIsInstance(cond.match, MatchValue)
+        self.assertEqual(cond.match.value, "spam")
+
+    def test_ne_boolean_operator(self):
+        """Boolean operands are supported for ne."""
+        cond = self.qdrant._build_field_condition("stage", {"ne": False})
+        self.assertIsInstance(cond.match, MatchValue)
+        self.assertIs(cond.match.value, False)
 
     def test_in_operator(self):
         """{\"in\": [...]} maps to MatchAny."""
@@ -707,7 +732,17 @@ class TestQdrantEnhancedFilters(unittest.TestCase):
     def test_create_filter_ne(self):
         result = self.qdrant._create_filter({"category": {"ne": "spam"}})
         self.assertIsInstance(result, Filter)
-        self.assertIsInstance(result.must[0].match, MatchExcept)
+        self.assertIsNone(result.must)
+        self.assertEqual(len(result.must_not), 1)
+        self.assertIsInstance(result.must_not[0].match, MatchValue)
+        self.assertEqual(result.must_not[0].match.value, "spam")
+
+    def test_create_filter_ne_boolean(self):
+        result = self.qdrant._create_filter({"stage": {"ne": False}})
+        self.assertIsInstance(result, Filter)
+        self.assertIsNone(result.must)
+        self.assertIsInstance(result.must_not[0].match, MatchValue)
+        self.assertIs(result.must_not[0].match.value, False)
 
     def test_create_filter_in(self):
         result = self.qdrant._create_filter({"category": {"in": ["prog", "data"]}})
