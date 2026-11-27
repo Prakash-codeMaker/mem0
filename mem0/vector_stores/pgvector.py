@@ -47,6 +47,20 @@ OPERATOR_SQL_MAP = {
 }
 
 
+def _jsonb_scalar_type(value):
+    """Return the JSONB scalar type needed to avoid cross-type text matches."""
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    return "string"
+
+
+def _filter_scalar_text(value):
+    """Serialize scalar filter values the same way PostgreSQL extracts JSONB text."""
+    return json.dumps(value) if isinstance(value, bool) else str(value)
+
+
 def _build_filter_conditions(filters):
     """Translate a processed filter dict into SQL WHERE fragments and parameter list."""
     conditions = []
@@ -88,7 +102,14 @@ def _build_filter_conditions(filters):
                 if op not in OPERATOR_SQL_MAP:
                     raise ValueError(f"Unsupported filter operator: {op}")
                 template, is_numeric = OPERATOR_SQL_MAP[op]
-                if op in ("in", "nin"):
+                if op == "eq":
+                    conditions.append(
+                        "(jsonb_typeof(payload->%s) = %s AND payload->>%s = %s)"
+                    )
+                    params.extend(
+                        [key, _jsonb_scalar_type(op_value), key, _filter_scalar_text(op_value)]
+                    )
+                elif op in ("in", "nin"):
                     if not isinstance(op_value, list):
                         raise ValueError(
                             f"Filter operator {op!r} for key {key!r} requires a list value, got {type(op_value).__name__}"
@@ -110,11 +131,12 @@ def _build_filter_conditions(filters):
             conditions.append("payload->>%s = ANY(%s)")
             params.extend([key, [str(v) for v in value]])
         else:
-            conditions.append("payload->>%s = %s")
-            if isinstance(value, bool):
-                params.extend([key, json.dumps(value)])
-            else:
-                params.extend([key, str(value)])
+            conditions.append(
+                "(jsonb_typeof(payload->%s) = %s AND payload->>%s = %s)"
+            )
+            params.extend(
+                [key, _jsonb_scalar_type(value), key, _filter_scalar_text(value)]
+            )
 
     return conditions, params
 
