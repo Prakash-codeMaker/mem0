@@ -167,7 +167,9 @@ export class AWSBedrockEmbedder implements Embedder {
   }
 
   private isCohereModel(): boolean {
-    return this.model.startsWith("cohere.");
+    // Cross-region inference profiles prefix the provider with a region, e.g.
+    // "us.cohere.embed-v4:0". Match the provider segment, not only the start.
+    return this.model.split(".").includes("cohere");
   }
 
   private isCohereV4Model(): boolean {
