@@ -75,6 +75,38 @@ def _captured_request_body(mock_boto3_client, config):
     return json.loads(call_kwargs["body"])
 
 
+@pytest.mark.parametrize(
+    "model",
+    [
+        "cohere.embed-v4:0",
+        "us.cohere.embed-v4:0",
+        "eu.cohere.embed-v4:0",
+        "global.cohere.embed-v4:0",
+    ],
+)
+def test_cohere_region_prefixed_models_use_cohere_request_and_response(
+    mock_boto3_client, model
+):
+    """Cross-region profile prefixes must not change the Cohere wire format."""
+    with patch("mem0.embeddings.aws_bedrock.os.environ", {}):
+        runtime = mock_boto3_client.return_value
+        response_stream = Mock()
+        response_stream.read.return_value = json.dumps(
+            {"embeddings": [[0.0, 0.1, 0.2]]}
+        ).encode()
+        runtime.invoke_model.return_value = {"body": response_stream}
+
+        embedder = AWSBedrockEmbedding(BaseEmbedderConfig(model=model))
+        embedding = embedder.embed("hello world")
+
+    assert embedding == [0.0, 0.1, 0.2]
+    _, call_kwargs = runtime.invoke_model.call_args
+    assert json.loads(call_kwargs["body"]) == {
+        "input_type": "search_document",
+        "texts": ["hello world"],
+    }
+
+
 def test_titan_v2_forwards_embedding_dims_as_dimensions(mock_boto3_client):
     """Titan Text Embeddings V2 must receive embedding_dims as `dimensions`.
 
