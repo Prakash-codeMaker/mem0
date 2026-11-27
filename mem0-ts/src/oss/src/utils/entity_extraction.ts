@@ -329,6 +329,46 @@ export interface ExtractedEntity {
   text: string;
 }
 
+const ENTITY_TYPE_PRIORITY: Record<string, number> = {
+  PROPER: 0,
+  IDENTIFIER: 1,
+  QUOTED: 2,
+  TOPIC: 3,
+};
+const REGEX_SPECIAL_CHARACTERS = /[.*+?^${}()|[\]\\]/g;
+
+/**
+ * Remove lower-priority entities that occur as whole-word substrings of
+ * longer entities. Text normalization and RegExp compilation are performed
+ * once per entity, not once per entity pair.
+ */
+export function filterEntitySubstrings(
+  entities: ExtractedEntity[],
+): ExtractedEntity[] {
+  const loweredTexts = entities.map((entity) => entity.text.toLowerCase());
+  const priorities = entities.map(
+    (entity) => ENTITY_TYPE_PRIORITY[entity.type] ?? 99,
+  );
+  const patterns = loweredTexts.map(
+    (text) =>
+      new RegExp(
+        "(^|\\s)" +
+          text.replace(REGEX_SPECIAL_CHARACTERS, "\\$&") +
+          "(\\s|$)",
+      ),
+  );
+
+  return entities.filter(
+    (_, index) =>
+      !entities.some(
+        (_, otherIndex) =>
+          loweredTexts[index] !== loweredTexts[otherIndex] &&
+          priorities[index] >= priorities[otherIndex] &&
+          patterns[index].test(loweredTexts[otherIndex]),
+      ),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // compromise dynamic import
 // ---------------------------------------------------------------------------
@@ -783,19 +823,14 @@ export function extractEntities(text: string): ExtractedEntity[] {
   }
 
   // Keep best type per entity (PROPER > IDENTIFIER > QUOTED > TOPIC)
-  const typePriority: Record<string, number> = {
-    PROPER: 0,
-    IDENTIFIER: 1,
-    QUOTED: 2,
-    TOPIC: 3,
-  };
   const best = new Map<string, ExtractedEntity>();
   for (const entity of cleaned) {
     const key = entity.text.toLowerCase();
     const existing = best.get(key);
     if (
       !existing ||
-      (typePriority[entity.type] ?? 99) < (typePriority[existing.type] ?? 99)
+      (ENTITY_TYPE_PRIORITY[entity.type] ?? 99) <
+        (ENTITY_TYPE_PRIORITY[existing.type] ?? 99)
     ) {
       best.set(key, entity);
     }
@@ -803,18 +838,7 @@ export function extractEntities(text: string): ExtractedEntity[] {
   const bestEntities = Array.from(best.values());
 
   // Remove entities that are token substrings of longer entities.
-  return bestEntities.filter(
-    (entity) =>
-      !bestEntities.some(
-        (other) =>
-          entity.text.toLowerCase() !== other.text.toLowerCase() &&
-          (typePriority[entity.type] ?? 99) >=
-            (typePriority[other.type] ?? 99) &&
-          new RegExp(
-            `(^|\\s)${entity.text.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`,
-          ).test(other.text.toLowerCase()),
-      ),
-  );
+  return filterEntitySubstrings(bestEntities);
 }
 
 /**
