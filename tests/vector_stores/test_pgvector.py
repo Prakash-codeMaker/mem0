@@ -2389,19 +2389,53 @@ class TestBuildFilterConditions(unittest.TestCase):
     def test_simple_equality(self):
         conditions, params = _build_filter_conditions({"user_id": "alice"})
         self.assertEqual(len(conditions), 1)
+        self.assertIn("jsonb_typeof(payload->%s)", conditions[0])
         self.assertIn("payload->>%s = %s", conditions[0])
-        self.assertEqual(params, ["user_id", "alice"])
+        self.assertEqual(
+            params, ["user_id", "string", "user_id", "alice"]
+        )
 
     def test_multiple_equalities(self):
         conditions, params = _build_filter_conditions({"user_id": "alice", "agent_id": "bot1"})
         self.assertEqual(len(conditions), 2)
-        self.assertEqual(params, ["user_id", "alice", "agent_id", "bot1"])
+        self.assertEqual(
+            params,
+            ["user_id", "string", "user_id", "alice", "agent_id", "string", "agent_id", "bot1"],
+        )
 
     def test_eq_operator(self):
         conditions, params = _build_filter_conditions({"status": {"eq": "active"}})
         self.assertEqual(len(conditions), 1)
+        self.assertIn("jsonb_typeof(payload->%s)", conditions[0])
         self.assertIn("payload->>%s = %s", conditions[0])
-        self.assertEqual(params, ["status", "active"])
+        self.assertEqual(
+            params, ["status", "string", "status", "active"]
+        )
+
+
+    def test_eq_operator_preserves_json_boolean_type(self):
+        conditions, params = _build_filter_conditions({"is_active": {"eq": True}})
+        self.assertEqual(len(conditions), 1)
+        self.assertIn("jsonb_typeof(payload->%s)", conditions[0])
+        self.assertEqual(
+            params, ["is_active", "boolean", "is_active", "true"]
+        )
+
+    def test_simple_string_equality_requires_a_string_json_value(self):
+        conditions, params = _build_filter_conditions({"v": "1"})
+        self.assertEqual(
+            conditions,
+            ["(jsonb_typeof(payload->%s) = %s AND payload->>%s = %s)"],
+        )
+        self.assertEqual(params, ["v", "string", "v", "1"])
+
+    def test_simple_numeric_equality_requires_a_number_json_value(self):
+        conditions, params = _build_filter_conditions({"v": 1})
+        self.assertEqual(
+            conditions,
+            ["(jsonb_typeof(payload->%s) = %s AND payload->>%s = %s)"],
+        )
+        self.assertEqual(params, ["v", "number", "v", "1"])
 
     def test_ne_operator(self):
         conditions, params = _build_filter_conditions({"status": {"ne": "deleted"}})
@@ -2537,15 +2571,24 @@ class TestBuildFilterConditions(unittest.TestCase):
 
     def test_boolean_true_uses_json_casing(self):
         conditions, params = _build_filter_conditions({"is_active": True})
-        self.assertEqual(params, ["is_active", "true"])
+        self.assertIn("jsonb_typeof(payload->%s)", conditions[0])
+        self.assertEqual(
+            params, ["is_active", "boolean", "is_active", "true"]
+        )
 
     def test_boolean_false_uses_json_casing(self):
         conditions, params = _build_filter_conditions({"is_active": False})
-        self.assertEqual(params, ["is_active", "false"])
+        self.assertIn("jsonb_typeof(payload->%s)", conditions[0])
+        self.assertEqual(
+            params, ["is_active", "boolean", "is_active", "false"]
+        )
 
     def test_numeric_scalar_becomes_string(self):
         conditions, params = _build_filter_conditions({"priority": 42})
-        self.assertEqual(params, ["priority", "42"])
+        self.assertIn("jsonb_typeof(payload->%s)", conditions[0])
+        self.assertEqual(
+            params, ["priority", "number", "priority", "42"]
+        )
 
     def test_in_rejects_string_value(self):
         """Passing a string to 'in' would iterate characters and produce a misleading ANY() clause."""
