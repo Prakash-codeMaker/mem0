@@ -240,6 +240,26 @@ describe("AWSBedrockEmbedder", () => {
         [3, 4],
       ]);
     });
+
+    it.each(["us", "eu", "global"])(
+      "handles the %s cross-region inference profile prefix",
+      async (region) => {
+        mockSend.mockResolvedValueOnce(
+          encode({ embeddings: { float: [[0.1, 0.2]] } }),
+        );
+        const embedder = new AWSBedrockEmbedder({
+          model: `${region}.cohere.embed-v4:0`,
+        });
+
+        await expect(embedder.embed("hello")).resolves.toEqual([0.1, 0.2]);
+
+        expect(requestBodyAt(0)).toEqual({
+          texts: ["hello"],
+          input_type: "search_document",
+          embedding_types: ["float"],
+        });
+      },
+    );
   });
 
   describe("client configuration", () => {
