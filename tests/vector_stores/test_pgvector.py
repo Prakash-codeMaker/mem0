@@ -2441,7 +2441,9 @@ class TestBuildFilterConditions(unittest.TestCase):
         conditions, params = _build_filter_conditions({"status": {"ne": "deleted"}})
         self.assertEqual(len(conditions), 1)
         self.assertIn("payload->>%s != %s", conditions[0])
-        self.assertEqual(params, ["status", "deleted"])
+        self.assertEqual(
+            params, ["status", "string", "status", "deleted"]
+        )
 
     def test_gt_operator(self):
         conditions, params = _build_filter_conditions({"price": {"gt": 100}})
@@ -2528,7 +2530,13 @@ class TestBuildFilterConditions(unittest.TestCase):
         self.assertEqual(len(conditions), 1)
         self.assertIn(" OR ", conditions[0])
         self.assertTrue(conditions[0].startswith("("))
-        self.assertEqual(params, ["user_id", "alice", "user_id", "bob"])
+        self.assertEqual(
+            params,
+            [
+                "user_id", "string", "user_id", "alice",
+                "user_id", "string", "user_id", "bob",
+            ],
+        )
 
     def test_not_operator(self):
         conditions, params = _build_filter_conditions({
@@ -2559,6 +2567,9 @@ class TestBuildFilterConditions(unittest.TestCase):
         self.assertEqual(len(conditions), 2)
         self.assertIn("payload->>%s = %s", conditions[0])
         self.assertIn("(payload->>%s)::numeric >= %s", conditions[1])
+        self.assertEqual(
+            params, ["user_id", "string", "user_id", "alice", "score", 5.0]
+        )
 
     def test_unsupported_operator_raises(self):
         with self.assertRaises(ValueError) as ctx:
