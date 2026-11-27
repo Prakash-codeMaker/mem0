@@ -60,11 +60,13 @@ class AWSBedrockEmbedding(EmbeddingBase):
     def _get_embedding(self, text):
         """Call out to Bedrock embedding endpoint."""
 
-        # Format input body based on the provider
-        provider = self.config.model.split(".")[0]
+        # Cross-region inference profiles prefix the provider with a region
+        # (for example, "us.cohere.embed-v4:0"). Detect the provider segment
+        # instead of assuming it is the first dot-separated segment.
+        is_cohere = "cohere" in self.config.model.split(".")
         input_body = {}
 
-        if provider == "cohere":
+        if is_cohere:
             input_body["input_type"] = "search_document"
             input_body["texts"] = [text]
         else:
@@ -88,7 +90,7 @@ class AWSBedrockEmbedding(EmbeddingBase):
 
             response_body = json.loads(response.get("body").read())
 
-            if provider == "cohere":
+            if is_cohere:
                 embeddings = response_body.get("embeddings")[0]
             else:
                 embeddings = response_body.get("embedding")
